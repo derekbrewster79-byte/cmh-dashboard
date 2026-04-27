@@ -2808,12 +2808,21 @@ with tab_market:
                 # ── Peer & Aspirational Comparison ────────────────────────
                 if _comp_rows:
                     _comp_df2 = pd.DataFrame(_comp_rows)
-                    st.markdown("#### How CMH Compares — Regional Jet Share vs. Peers & Aspirational Airports")
-                    st.caption(
-                        "Only airports with nonstop service to each hub are shown.  "
-                        f"**Navy** = Columbus (CMH) · **Light blue** = peer airports · **Pink** = aspirational peers (AUS/BNA/RDU)."
+                    st.markdown("#### Is CMH Over- or Under-Performing? — Regional Jet Dependency vs. Peers")
+                    st.markdown(
+                        "<div style='background:#FFF8E1; border-left:4px solid #F59E0B; "
+                        "padding:10px 14px; border-radius:4px; margin-bottom:12px; font-size:13px;'>"
+                        "<b>How to read these charts:</b> Each bar shows what percentage of passengers "
+                        "on that route fly on <b>small regional jets</b> (typically 50–76 seats). "
+                        "<b>Lower is better</b> — a shorter bar means more passengers fly on full-size "
+                        "mainline aircraft with wider seats, lie-flat business class options, and more "
+                        "scheduling frequency. Airports are sorted best-to-worst (lowest regional % at top). "
+                        "Columbus (CMH) is highlighted in navy. The dotted line shows the peer group average."
+                        "</div>",
+                        unsafe_allow_html=True,
                     )
                     _cp_cols = st.columns(len(_HUB_ROUTES))
+                    _hub_summaries = []
                     for _cpi, (_hub_code, (_hub_lbl, _)) in enumerate(_HUB_ROUTES.items()):
                         with _cp_cols[_cpi]:
                             _cd = (_comp_df2[_comp_df2["Hub"] == _hub_code]
@@ -2821,11 +2830,29 @@ with tab_market:
                             if _cd.empty:
                                 st.caption(f"No data for {_hub_code}")
                                 continue
+                            _cd = _cd.reset_index(drop=True)
+                            _avg_reg = _cd["RegPct"].mean()
+                            _n_total = len(_cd)
+                            _cmh_rank = None
+                            if "CMH" in _cd["Airport"].values:
+                                # rank 1 = lowest regional% = best; rank sorted ascending = position in df + 1
+                                _cmh_rank = _cd[_cd["Airport"] == "CMH"].index[0] + 1
+                                _cmh_pct  = float(_cd[_cd["Airport"] == "CMH"]["RegPct"].iloc[0])
+                                _gap_vs_avg = _cmh_pct - _avg_reg
+                                _verdict = "underperforming" if _gap_vs_avg > 5 else ("on par" if abs(_gap_vs_avg) <= 5 else "outperforming")
+                                _hub_summaries.append({
+                                    "hub": _hub_code, "hub_lbl": _hub_lbl,
+                                    "cmh_pct": _cmh_pct, "avg_pct": _avg_reg,
+                                    "gap": _gap_vs_avg, "rank": _cmh_rank,
+                                    "n": _n_total, "verdict": _verdict,
+                                })
+
                             _cd["Color"] = _cd["Airport"].map(
                                 lambda a: NAVY if a == "CMH"
                                 else "#C6397B" if a in ASPIRATIONAL_AIRPORTS
                                 else LIGHT_BLUE
                             )
+                            _rank_label = f"CMH: #{_cmh_rank} of {_n_total}" if _cmh_rank else ""
                             _fig_cmp = go.Figure(go.Bar(
                                 x=_cd["RegPct"],
                                 y=_cd["Airport"],
@@ -2834,13 +2861,37 @@ with tab_market:
                                 text=_cd["RegPct"].round(0).astype(int).astype(str) + "%",
                                 textposition="outside",
                                 textfont=dict(size=10),
-                                hovertemplate="<b>%{y}</b><br>Regional jet: %{x:.1f}%<extra></extra>",
+                                hovertemplate=(
+                                    "<b>%{y}</b><br>Regional jet share: %{x:.1f}%"
+                                    "<br><i>Lower = more mainline aircraft</i><extra></extra>"
+                                ),
                             ))
+                            _title_str = (
+                                f"{_hub_code} — {_hub_lbl.split()[0]}<br>"
+                                f"<span style='font-size:11px; color:#6b7280;'>{_rank_label}</span>"
+                                if _rank_label else f"{_hub_code} — {_hub_lbl.split()[0]}"
+                            )
                             _fig_cmp = layout(_fig_cmp, f"→ {_hub_code}", height=300, legend=False)
                             _fig_cmp.update_layout(
-                                xaxis=dict(range=[0, 118], ticksuffix="%"),
+                                title=dict(
+                                    text=f"<b>{_hub_code}</b> · {_hub_lbl}<br>"
+                                         f"<span style='font-size:11px;color:#6b7280'>"
+                                         f"{'CMH ranks #' + str(_cmh_rank) + ' of ' + str(_n_total) + ' airports · lower % = more mainline' if _cmh_rank else 'lower % = more mainline'}"
+                                         f"</span>",
+                                    font=dict(size=13),
+                                ),
+                                xaxis=dict(range=[0, 118], ticksuffix="%",
+                                           title="% passengers on regional jets"),
                                 yaxis_title="",
                             )
+                            # Peer average reference line
+                            _fig_cmp.add_vline(
+                                x=_avg_reg, line_dash="dot", line_color="#94a3b8", line_width=1.5,
+                                annotation_text=f"avg {_avg_reg:.0f}%",
+                                annotation_position="top",
+                                annotation_font=dict(size=9, color="#64748b"),
+                            )
+                            # Teal outline on CMH bar
                             if "CMH" in _cd["Airport"].values:
                                 _cmh_yi = _cd["Airport"].tolist().index("CMH")
                                 _cmh_xv = float(_cd[_cd["Airport"] == "CMH"]["RegPct"].iloc[0])
@@ -2851,43 +2902,35 @@ with tab_market:
                                     fillcolor="rgba(0,0,0,0)")
                             st.plotly_chart(_fig_cmp, use_container_width=True)
 
-                    # Dynamic insight: best aspirational comparison
-                    _cmh_reg = _comp_df2[_comp_df2["Airport"] == "CMH"].set_index("Hub")["RegPct"]
-                    _asp_rows = _comp_df2[_comp_df2["Type"] == "Aspirational"]
-                    _best_asp, _best_delta = None, 0
-                    for _, _arow in _asp_rows.iterrows():
-                        if _arow["Hub"] in _cmh_reg.index:
-                            _d = _cmh_reg[_arow["Hub"]] - _arow["RegPct"]
-                            if _d > _best_delta:
-                                _best_delta, _best_asp = _d, _arow
-
-                    _peer_rows = _comp_df2[_comp_df2["Type"] == "Peer"]
-                    _best_peer, _best_peer_delta = None, 0
-                    for _, _prow in _peer_rows.iterrows():
-                        if _prow["Hub"] in _cmh_reg.index:
-                            _d2 = _cmh_reg[_prow["Hub"]] - _prow["RegPct"]
-                            if _d2 > _best_peer_delta:
-                                _best_peer_delta, _best_peer = _d2, _prow
-
-                    _cmp_parts = []
-                    if _best_asp is not None and _best_delta > 5:
-                        _an = AIRPORT_NAMES.get(_best_asp["Airport"], _best_asp["Airport"])
-                        _cmp_parts.append(
-                            f"Aspirational peer <b>{_an}</b> carries only "
-                            f"<b>{_best_asp['RegPct']:.0f}%</b> regional to "
-                            f"<b>{_best_asp['Hub']}</b> vs. CMH's "
-                            f"<b>{_cmh_reg[_best_asp['Hub']]:.0f}%</b> — "
-                            f"a <b>{_best_delta:.0f}-point gap</b> signaling more mainline carrier presence."
+                    # Rich per-hub summary insight
+                    if _hub_summaries:
+                        _verdict_html = ""
+                        for _hs in _hub_summaries:
+                            _icon  = "🔴" if _hs["verdict"] == "underperforming" else ("🟡" if _hs["verdict"] == "on par" else "🟢")
+                            _dir   = (f"<b>{_hs['gap']:.0f} points above</b> the group average"
+                                      if _hs["gap"] > 0 else
+                                      f"<b>{abs(_hs['gap']):.0f} points below</b> the group average")
+                            _verdict_html += (
+                                f"<div style='padding:8px 0; border-bottom:1px solid #f0f2f5;'>"
+                                f"<b style='color:{NAVY};'>{_hs['hub']} ({_hs['hub_lbl']}):</b> "
+                                f"CMH ranks <b>#{_hs['rank']} of {_hs['n']}</b> airports — "
+                                f"<b>{_hs['cmh_pct']:.0f}%</b> regional jet, {_dir} "
+                                f"({_hs['avg_pct']:.0f}% avg). "
+                                f"CMH is <b>{_hs['verdict']}</b> on this route. {_icon}"
+                                f"</div>"
+                            )
+                        st.markdown(
+                            f"<div style='background:#F8FAFD; border:1px solid #e2e8f0; "
+                            f"border-radius:8px; padding:14px 16px; font-size:13px; margin-top:8px;'>"
+                            f"<div style='font-weight:700; color:{NAVY}; margin-bottom:8px;'>"
+                            f"CMH Service Quality Scorecard — Northeast Business Hubs</div>"
+                            f"{_verdict_html}"
+                            f"<div style='margin-top:10px; font-size:11px; color:#6b7280;'>"
+                            f"Rank 1 = lowest regional jet % = best mainline service in the group. "
+                            f"Underperforming = CMH has more regional jets than the group average on that route.</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
                         )
-                    if _best_peer is not None and _best_peer_delta > 5:
-                        _pn = AIRPORT_NAMES.get(_best_peer["Airport"], _best_peer["Airport"])
-                        _cmp_parts.append(
-                            f"Peer airport <b>{_pn}</b> also outperforms CMH to "
-                            f"<b>{_best_peer['Hub']}</b> "
-                            f"({_best_peer['RegPct']:.0f}% vs. {_cmh_reg[_best_peer['Hub']]:.0f}% regional)."
-                        )
-                    if _cmp_parts:
-                        insight(" ".join(_cmp_parts), sentiment="neutral")
 
         else:
             # Hardcoded fallback (from 2025 T-100 segment analysis)
