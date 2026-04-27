@@ -47,7 +47,10 @@ LIGHT_BLUE  = "#BDE1FD"
 MED_BLUE    = "#0B76DA"
 BLUSH       = "#FFCCCF"
 
-BTS_DIR    = "data/bts"
+# Use pre-filtered deploy data when present (Streamlit Cloud), else raw data (local)
+BTS_DIR    = "data/deploy" if os.path.isdir("data/deploy") and any(
+    f.endswith(".csv") for f in os.listdir("data/deploy")
+) else "data/bts"
 OUTPUT_DIR = "output"
 
 CHART_COLORS = ["#002F6C","#0B76DA","#248F81","#A053AC","#C6397B","#86C5FA","#FFCCCF","#BDE1FD"]

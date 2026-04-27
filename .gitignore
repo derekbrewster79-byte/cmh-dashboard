@@ -4,11 +4,12 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Data files — re-fetch with the fetch_*.py scripts at work
-data/
-
-# Internal / company data — never commit
+# Raw data files — re-fetch with the fetch_*.py scripts at work
+data/bts/
 data/internal/
+
+# Deploy data IS committed (pre-filtered, ~15 MB)
+!data/deploy/
 
 # macOS
 .DS_Store
