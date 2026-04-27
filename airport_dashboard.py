@@ -875,8 +875,12 @@ with tab_overview:
                     f"the strongest recovery was <b>+{best_val/1e3:.0f}K passengers</b> in <b>{best_yr}</b>.", sentiment="neutral")
 
         # ── 2. Sankey: CMH → Hub → Onward ──────────────────────
-        st.markdown("### Passenger Flow — Columbus Through Connecting Hubs")
-        st.caption("How Columbus passengers flow outward through the nation's top connecting hubs.")
+        st.markdown("### Connecting Hub Flow — Where CMH Passengers Go Through Major Hubs")
+        st.caption(
+            "This diagram shows only **connecting traffic**: passengers who fly CMH → hub → onward destination. "
+            "Direct nonstop routes from CMH (including LGA, BOS, DCA, and others) are **not shown here** — "
+            "see the Market Opportunity tab for CMH's direct route network."
+        )
         if data_loaded:
             sankey_yr = int(market_df["YEAR"].max())
             cmh_hubs, hub_onward = load_hub_onward(year=sankey_yr)
@@ -917,9 +921,14 @@ with tab_overview:
                 st.plotly_chart(fig_sankey, use_container_width=True)
                 top_hub  = cmh_hubs.iloc[0]
                 hub_city = dest_city.get(top_hub['hub'], top_hub['hub'])
-                insight(f"<b>{hub_city} ({top_hub['hub']})</b> is Columbus's largest connecting hub, handling "
-                        f"<b>{top_hub['cmh_pax']:,.0f} passengers</b> in {sankey_yr} — "
-                        f"the width of each flow band reflects relative passenger volume through each hub.")
+                insight(
+                    f"<b>{hub_city} ({top_hub['hub']})</b> is Columbus's largest connecting hub, routing "
+                    f"<b>{top_hub['cmh_pax']:,.0f} passengers</b> in {sankey_yr}. "
+                    f"Note: destinations shown on the right (including LGA) appear here as popular hub "
+                    f"onward connections — CMH also operates <b>direct nonstop service</b> to LGA, BOS, and DCA "
+                    f"independent of this hub flow.",
+                    sentiment="neutral",
+                )
 
         # ── 3. Route Map ────────────────────────────────────────
         st.markdown("### Columbus (CMH) Route Network — Passenger Volume Map")
