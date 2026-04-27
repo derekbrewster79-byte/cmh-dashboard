@@ -22,5 +22,4 @@ data/internal/
 # Misc
 *.mov
 *.mp4
-output/
 *.log
