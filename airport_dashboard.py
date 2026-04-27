@@ -960,34 +960,6 @@ with tab_overview:
                         insight(f"Columbus (CMH)'s combined on-time rate of <b>{r['COMBINED_ONTIME_PCT']:.1f}%</b> "
                                 f"in {ot_year} ranked <b>#{rank_pos} of {len(cmh_rank)}</b> among peer airports.")
 
-        # ── 4b. Carrier Share Over Time ────────────────────────
-        st.markdown("### Airline Passenger Trend by Carrier — Columbus (CMH)")
-        st.caption("Stacked area shows how each airline's contribution to Columbus passenger volume has shifted over time.")
-        car_col = "UNIQUE_CARRIER_NAME" if "UNIQUE_CARRIER_NAME" in market_df.columns else "CARRIER_NAME"
-        car_time = (market_df[market_df["ORIGIN"]=="CMH"]
-                    .groupby([car_col, "YEAR"])["PASSENGERS"].sum().reset_index())
-        top_cars = car_time.groupby(car_col)["PASSENGERS"].sum().nlargest(6).index
-        car_time = car_time[car_time[car_col].isin(top_cars)].copy()
-        car_time = car_time.rename(columns={car_col: "Carrier"})
-        if not car_time.empty:
-            fig_car = px.area(car_time, x="YEAR", y="PASSENGERS", color="Carrier",
-                              color_discrete_sequence=CHART_COLORS,
-                              groupnorm=None)
-            fig_car = layout(fig_car, "Columbus (CMH) Passenger Volume by Airline (top 6 carriers)", height=360)
-            fig_car.update_layout(xaxis_title="Year", yaxis_title="Passengers",
-                                  xaxis=dict(tickmode="linear", dtick=1, tickformat="d"),
-                                  hovermode="x unified")
-            covid_band(fig_car)
-            st.plotly_chart(fig_car, use_container_width=True)
-            latest_car_yr = int(car_time["YEAR"].max())
-            top_carrier_row = (car_time[car_time["YEAR"]==latest_car_yr]
-                               .sort_values("PASSENGERS", ascending=False).iloc[0])
-            total_latest = car_time[car_time["YEAR"]==latest_car_yr]["PASSENGERS"].sum()
-            top_share = top_carrier_row["PASSENGERS"] / total_latest * 100
-            insight(f"<b>{top_carrier_row['Carrier']}</b> is Columbus's dominant carrier in {latest_car_yr} "
-                    f"with <b>{top_share:.0f}%</b> of the top-6 carrier passenger volume — "
-                    f"watch this chart for shifts in airline commitment to the Columbus market.")
-
         # ── 5. Nonstop Frequency ────────────────────────────────
         if not segment_df.empty:
             st.markdown("### Top Routes by Daily Nonstop Frequency — Columbus (CMH)")
@@ -1268,6 +1240,34 @@ with tab_overview:
                 )
 
 # ══════════════════════════════════════════════════════════════
+        # ── 4b. Carrier Share Over Time ────────────────────────
+        st.markdown("### Airline Passenger Trend by Carrier — Columbus (CMH)")
+        st.caption("Stacked area shows how each airline's contribution to Columbus passenger volume has shifted over time.")
+        car_col = "UNIQUE_CARRIER_NAME" if "UNIQUE_CARRIER_NAME" in market_df.columns else "CARRIER_NAME"
+        car_time = (market_df[market_df["ORIGIN"]=="CMH"]
+                    .groupby([car_col, "YEAR"])["PASSENGERS"].sum().reset_index())
+        top_cars = car_time.groupby(car_col)["PASSENGERS"].sum().nlargest(6).index
+        car_time = car_time[car_time[car_col].isin(top_cars)].copy()
+        car_time = car_time.rename(columns={car_col: "Carrier"})
+        if not car_time.empty:
+            fig_car = px.area(car_time, x="YEAR", y="PASSENGERS", color="Carrier",
+                              color_discrete_sequence=CHART_COLORS,
+                              groupnorm=None)
+            fig_car = layout(fig_car, "Columbus (CMH) Passenger Volume by Airline (top 6 carriers)", height=360)
+            fig_car.update_layout(xaxis_title="Year", yaxis_title="Passengers",
+                                  xaxis=dict(tickmode="linear", dtick=1, tickformat="d"),
+                                  hovermode="x unified")
+            covid_band(fig_car)
+            st.plotly_chart(fig_car, use_container_width=True)
+            latest_car_yr = int(car_time["YEAR"].max())
+            top_carrier_row = (car_time[car_time["YEAR"]==latest_car_yr]
+                               .sort_values("PASSENGERS", ascending=False).iloc[0])
+            total_latest = car_time[car_time["YEAR"]==latest_car_yr]["PASSENGERS"].sum()
+            top_share = top_carrier_row["PASSENGERS"] / total_latest * 100
+            insight(f"<b>{top_carrier_row['Carrier']}</b> is Columbus's dominant carrier in {latest_car_yr} "
+                    f"with <b>{top_share:.0f}%</b> of the top-6 carrier passenger volume — "
+                    f"watch this chart for shifts in airline commitment to the Columbus market.")
+
 # TAB 2 · COLUMBUS MSA
 # ══════════════════════════════════════════════════════════════
 with tab_msa:
