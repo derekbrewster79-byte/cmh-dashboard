@@ -755,6 +755,7 @@ with tab_overview:
             f"<li style='{_li_css}'>{_icon_good}<b>{_ov_dests} nonstop destinations</b>, 55+ total including LCK — a record high for the Columbus market</li>"
             f"<li style='{_li_css}'>{_icon_good}<b>Air Canada Toronto (YYZ)</b> launched May 2025 — CMH's first regular international scheduled service, carrying 44,994 passengers in year one</li>"
             f"<li style='{_li_css}'>{_icon_good}Strong carrier diversity: Southwest (31%), American, Delta, United, and 7 additional airlines maintaining competitive fares</li>"
+            f"<li style='{_li_css}'>{_icon_good}<b>Nonstop service to all three major northeast business hubs</b> — New York LaGuardia (LGA), Boston (BOS), and Washington Reagan (DCA) — a route foundation many peer markets lack, carrying 436K+ combined annual passengers</li>"
             f"</ul></td>"
 
             # Right — Opportunities
@@ -767,6 +768,7 @@ with tab_overview:
             f"<li style='{_li_css}'>{_icon_opp}<b>International connectivity gap</b> vs. aspirational peers (AUS: 12 routes, BNA/RDU: 5) — open runway for additional Mexico, Caribbean, and transatlantic routes as demand matures</li>"
             f"<li style='{_li_css}'>{_icon_opp}<b>No airline club lounges</b> (United Club, Delta Sky Club, Admirals Club) — a clear ask to CMH's top carriers to deepen commitment and improve business traveler experience</li>"
             f"<li style='{_li_css}'>{_icon_opp}Growing Columbus tech and professional services economy is generating latent business travel demand that larger aircraft and new routes can unlock</li>"
+            f"<li style='{_li_css}'>{_icon_opp}<b>Northeast hub service quality upgrade</b> — LGA, BOS, and DCA routes are currently 76–98% regional jets; as Columbus passenger volumes grow, airlines have clear incentive to deploy mainline aircraft, unlocking premium seating, lie-flat business class, and stronger corporate travel appeal</li>"
             f"</ul></td>"
 
             f"</tr></table></div>",
