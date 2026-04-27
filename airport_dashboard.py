@@ -589,10 +589,13 @@ with st.sidebar:
     view = st.radio("Airport Set", ["Peer Airports", "Aspirational Airports", "All Airports"])
     if view == "Peer Airports":
         display_airports, color_map = PEER_AIRPORTS, PEER_COLORS
+        st.caption("CMH · IND · CVG · CLE · PIT · DAY")
     elif view == "Aspirational Airports":
         display_airports, color_map = ["CMH"] + ASPIRATIONAL_AIRPORTS, ASPIRATIONAL_COLORS
+        st.caption("CMH · AUS · BNA · RDU")
     else:
         display_airports, color_map = ALL_AIRPORTS, ALL_COLORS
+        st.caption("CMH · IND · CVG · CLE · PIT · DAY · AUS · BNA · RDU")
 
     st.markdown("---")
     st.markdown("**Data Sources**")
@@ -2663,6 +2666,246 @@ with tab_market:
             f"The charts below surface underserved frequencies, leakage to nearby airports, and the strongest unserved route opportunities."
         )
 
+        # ── Hub Service Quality — Regional Jet Dominance ─────────────────────
+        st.markdown("### Hub Service Quality — Key Business Routes Underserved by Mainline Aircraft")
+        st.caption(
+            "Columbus (CMH) flies nonstop to major northeast business hubs, but premium travelers face a "
+            "service gap: routes dominated by 50–76 seat regional jets offer no lie-flat business class, "
+            "limited award availability, and less scheduling flexibility. When demand justifies it, airlines "
+            "upgrade to mainline equipment — multiplying capacity without adding new routes."
+        )
+
+        _REGIONAL_CARRIERS = {"YX", "9E", "MQ", "OH", "G7", "EV", "OO", "ZW", "QX", "CP", "YV"}
+        _HUB_ROUTES = {
+            "LGA": ("New York LaGuardia",    "Northeast Corridor — #1 US business market"),
+            "BOS": ("Boston Logan",          "Finance, biotech & university hub"),
+            "DCA": ("Washington Reagan",     "Government, consulting & lobbying hub"),
+        }
+
+        if not segment_df.empty and "UNIQUE_CARRIER" in segment_df.columns:
+            _seg_latest  = int(segment_df["YEAR"].max())
+            _seg_yr_all  = segment_df[segment_df["YEAR"] == _seg_latest]
+            _cmh_seg     = _seg_yr_all[_seg_yr_all["ORIGIN"] == "CMH"].copy()
+
+            # CMH-only metrics for the headline cards
+            _hub_rows = []
+            for _hub, (_hub_name, _hub_desc) in _HUB_ROUTES.items():
+                _r = _cmh_seg[_cmh_seg["DEST"] == _hub]
+                if _r.empty:
+                    continue
+                _total_pax   = _r["PASSENGERS"].sum()
+                _total_deps  = _r["DEPARTURES_PERFORMED"].sum()
+                _total_seats = _r["SEATS"].sum() if "SEATS" in _r.columns else 0
+                _avg_seats   = _total_seats / _total_deps if _total_deps > 0 else 0
+                _reg_pax     = _r[_r["UNIQUE_CARRIER"].isin(_REGIONAL_CARRIERS)]["PASSENGERS"].sum()
+                _reg_pct     = _reg_pax / _total_pax * 100 if _total_pax > 0 else 0
+                _hub_rows.append({
+                    "Hub": _hub, "Name": _hub_name, "Desc": _hub_desc,
+                    "TotalPax": int(_total_pax), "RegPct": _reg_pct, "AvgSeats": _avg_seats,
+                })
+
+            # All-airport metrics for peer comparison
+            _comp_rows = []
+            for _ap in ALL_AIRPORTS:
+                _ap_seg = _seg_yr_all[_seg_yr_all["ORIGIN"] == _ap]
+                for _hub in _HUB_ROUTES:
+                    _r2 = _ap_seg[_ap_seg["DEST"] == _hub]
+                    if _r2.empty:
+                        continue
+                    _tp2 = _r2["PASSENGERS"].sum()
+                    if _tp2 < 500:
+                        continue
+                    _rp2 = _r2[_r2["UNIQUE_CARRIER"].isin(_REGIONAL_CARRIERS)]["PASSENGERS"].sum()
+                    _comp_rows.append({
+                        "Airport": _ap,
+                        "Hub":     _hub,
+                        "RegPct":  _rp2 / _tp2 * 100,
+                        "TotalPax": int(_tp2),
+                        "Type": "CMH" if _ap == "CMH"
+                                else ("Aspirational" if _ap in ASPIRATIONAL_AIRPORTS else "Peer"),
+                    })
+
+            if _hub_rows:
+                _hub_df = pd.DataFrame(_hub_rows)
+
+                # ── Metric cards ──────────────────────────────────────────
+                _card_cols = st.columns(len(_hub_rows))
+                for _ci, _crow in enumerate(_hub_df.itertuples(index=False)):
+                    with _card_cols[_ci]:
+                        _reg_color = "#C6397B" if _crow.RegPct >= 90 else "#0B76DA" if _crow.RegPct >= 70 else TEAL
+                        st.markdown(
+                            f"<div style='background:#F8FAFD; border:1px solid #e2e8f0; border-radius:10px; "
+                            f"padding:18px 16px; text-align:center; height:200px;'>"
+                            f"<div style='font-size:22px; font-weight:700; color:{NAVY};'>{_crow.Hub}</div>"
+                            f"<div style='font-size:13px; font-weight:600; color:{TEXT_COLOR}; margin:4px 0 2px;'>{_crow.Name}</div>"
+                            f"<div style='font-size:11px; color:#6b7280; margin-bottom:12px;'>{_crow.Desc}</div>"
+                            f"<div style='font-size:28px; font-weight:700; color:{_reg_color};'>{_crow.RegPct:.0f}%</div>"
+                            f"<div style='font-size:11px; color:#6b7280;'>regional jet</div>"
+                            f"<div style='font-size:13px; color:{TEXT_COLOR}; margin-top:8px;'>"
+                            f"<b>{_crow.TotalPax:,.0f}</b> pax · <b>{_crow.AvgSeats:.0f}</b> avg seats</div>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # ── Dual-bar: pax volume + CMH regional % ─────────────────
+                _hq1, _hq2 = st.columns(2)
+
+                with _hq1:
+                    _fig_hubpax = go.Figure(go.Bar(
+                        x=_hub_df["Hub"],
+                        y=_hub_df["TotalPax"] / 1e3,
+                        marker_color=[NAVY, MED_BLUE, TEAL],
+                        text=(_hub_df["TotalPax"] / 1e3).round(0).astype(int).astype(str) + "K",
+                        textposition="outside",
+                        textfont=dict(size=12),
+                        hovertemplate="<b>%{x}</b><br>%{y:.0f}K passengers<extra></extra>",
+                    ))
+                    _fig_hubpax = layout(_fig_hubpax, f"Annual Passengers CMH→Hub ({_seg_latest})",
+                                         height=320, legend=False)
+                    _fig_hubpax.update_layout(
+                        xaxis_title="Hub Airport",
+                        yaxis_title="Passengers (thousands)",
+                        yaxis=dict(range=[0, _hub_df["TotalPax"].max() / 1e3 * 1.25]),
+                    )
+                    st.plotly_chart(_fig_hubpax, use_container_width=True)
+
+                with _hq2:
+                    _fig_hubpct = go.Figure(go.Bar(
+                        x=_hub_df["Hub"],
+                        y=_hub_df["RegPct"],
+                        marker_color=["#C6397B" if v >= 90 else "#0B76DA" if v >= 70 else TEAL
+                                      for v in _hub_df["RegPct"]],
+                        text=_hub_df["RegPct"].round(0).astype(int).astype(str) + "%",
+                        textposition="outside",
+                        textfont=dict(size=12),
+                        hovertemplate="<b>%{x}</b><br>%{y:.1f}% regional jet<extra></extra>",
+                    ))
+                    _fig_hubpct = layout(_fig_hubpct,
+                                         f"% Passengers on Regional Jets — CMH→Hub ({_seg_latest})",
+                                         height=320, legend=False)
+                    _fig_hubpct.update_layout(
+                        xaxis_title="Hub Airport",
+                        yaxis_title="Regional Jet Share (%)",
+                        yaxis=dict(range=[0, 115], ticksuffix="%"),
+                    )
+                    _fig_hubpct.add_hline(y=100, line_dash="dot", line_color="#aaa",
+                        annotation_text="100% regional", annotation_position="top right",
+                        annotation_font=dict(size=9, color="#aaa"))
+                    st.plotly_chart(_fig_hubpct, use_container_width=True)
+
+                _worst = _hub_df.loc[_hub_df["RegPct"].idxmax()]
+                insight(
+                    f"Columbus (CMH)'s route to <b>{_worst.Name} ({_worst.Hub})</b> is "
+                    f"<b>{_worst.RegPct:.0f}% regional jet</b> — {int(_worst.TotalPax):,} passengers "
+                    f"a year averaging just <b>{_worst.AvgSeats:.0f} seats per departure</b>. "
+                    f"All three northeast business corridors (LGA, BOS, DCA) are dominated by regional "
+                    f"equipment, signaling a structural service gap for Columbus's premium business traveler.",
+                    sentiment="risk",
+                )
+
+                # ── Peer & Aspirational Comparison ────────────────────────
+                if _comp_rows:
+                    _comp_df2 = pd.DataFrame(_comp_rows)
+                    st.markdown("#### How CMH Compares — Regional Jet Share vs. Peers & Aspirational Airports")
+                    st.caption(
+                        "Only airports with nonstop service to each hub are shown.  "
+                        f"**Navy** = Columbus (CMH) · **Light blue** = peer airports · **Pink** = aspirational peers (AUS/BNA/RDU)."
+                    )
+                    _cp_cols = st.columns(len(_HUB_ROUTES))
+                    for _cpi, (_hub_code, (_hub_lbl, _)) in enumerate(_HUB_ROUTES.items()):
+                        with _cp_cols[_cpi]:
+                            _cd = (_comp_df2[_comp_df2["Hub"] == _hub_code]
+                                   .sort_values("RegPct", ascending=True).copy())
+                            if _cd.empty:
+                                st.caption(f"No data for {_hub_code}")
+                                continue
+                            _cd["Color"] = _cd["Airport"].map(
+                                lambda a: NAVY if a == "CMH"
+                                else "#C6397B" if a in ASPIRATIONAL_AIRPORTS
+                                else LIGHT_BLUE
+                            )
+                            _fig_cmp = go.Figure(go.Bar(
+                                x=_cd["RegPct"],
+                                y=_cd["Airport"],
+                                orientation="h",
+                                marker_color=_cd["Color"].tolist(),
+                                text=_cd["RegPct"].round(0).astype(int).astype(str) + "%",
+                                textposition="outside",
+                                textfont=dict(size=10),
+                                hovertemplate="<b>%{y}</b><br>Regional jet: %{x:.1f}%<extra></extra>",
+                            ))
+                            _fig_cmp = layout(_fig_cmp, f"→ {_hub_code}", height=300, legend=False)
+                            _fig_cmp.update_layout(
+                                xaxis=dict(range=[0, 118], ticksuffix="%"),
+                                yaxis_title="",
+                            )
+                            if "CMH" in _cd["Airport"].values:
+                                _cmh_yi = _cd["Airport"].tolist().index("CMH")
+                                _cmh_xv = float(_cd[_cd["Airport"] == "CMH"]["RegPct"].iloc[0])
+                                _fig_cmp.add_shape(type="rect",
+                                    y0=_cmh_yi - 0.45, y1=_cmh_yi + 0.45,
+                                    x0=0, x1=_cmh_xv,
+                                    line=dict(color=TEAL, width=2.5),
+                                    fillcolor="rgba(0,0,0,0)")
+                            st.plotly_chart(_fig_cmp, use_container_width=True)
+
+                    # Dynamic insight: best aspirational comparison
+                    _cmh_reg = _comp_df2[_comp_df2["Airport"] == "CMH"].set_index("Hub")["RegPct"]
+                    _asp_rows = _comp_df2[_comp_df2["Type"] == "Aspirational"]
+                    _best_asp, _best_delta = None, 0
+                    for _, _arow in _asp_rows.iterrows():
+                        if _arow["Hub"] in _cmh_reg.index:
+                            _d = _cmh_reg[_arow["Hub"]] - _arow["RegPct"]
+                            if _d > _best_delta:
+                                _best_delta, _best_asp = _d, _arow
+
+                    _peer_rows = _comp_df2[_comp_df2["Type"] == "Peer"]
+                    _best_peer, _best_peer_delta = None, 0
+                    for _, _prow in _peer_rows.iterrows():
+                        if _prow["Hub"] in _cmh_reg.index:
+                            _d2 = _cmh_reg[_prow["Hub"]] - _prow["RegPct"]
+                            if _d2 > _best_peer_delta:
+                                _best_peer_delta, _best_peer = _d2, _prow
+
+                    _cmp_parts = []
+                    if _best_asp is not None and _best_delta > 5:
+                        _an = AIRPORT_NAMES.get(_best_asp["Airport"], _best_asp["Airport"])
+                        _cmp_parts.append(
+                            f"Aspirational peer <b>{_an}</b> carries only "
+                            f"<b>{_best_asp['RegPct']:.0f}%</b> regional to "
+                            f"<b>{_best_asp['Hub']}</b> vs. CMH's "
+                            f"<b>{_cmh_reg[_best_asp['Hub']]:.0f}%</b> — "
+                            f"a <b>{_best_delta:.0f}-point gap</b> signaling more mainline carrier presence."
+                        )
+                    if _best_peer is not None and _best_peer_delta > 5:
+                        _pn = AIRPORT_NAMES.get(_best_peer["Airport"], _best_peer["Airport"])
+                        _cmp_parts.append(
+                            f"Peer airport <b>{_pn}</b> also outperforms CMH to "
+                            f"<b>{_best_peer['Hub']}</b> "
+                            f"({_best_peer['RegPct']:.0f}% vs. {_cmh_reg[_best_peer['Hub']]:.0f}% regional)."
+                        )
+                    if _cmp_parts:
+                        insight(" ".join(_cmp_parts), sentiment="neutral")
+
+        else:
+            # Hardcoded fallback (from 2025 T-100 segment analysis)
+            st.markdown("""
+| Hub | Airport | Business Significance | Annual Pax | Regional Jet % | Avg Seats |
+|-----|---------|----------------------|-----------|---------------|-----------|
+| **LGA** | New York LaGuardia | Northeast Corridor — #1 US business market | 210,000 | 79.8% | 86 |
+| **BOS** | Boston Logan | Finance, biotech & university hub | 110,000 | 98.2% | 77 |
+| **DCA** | Washington Reagan | Government, consulting & lobbying hub | 116,000 | 75.6% | 86 |
+""")
+            insight(
+                "All three of Columbus (CMH)'s top northeast business corridors — "
+                "<b>New York LaGuardia (79.8%)</b>, <b>Boston (98.2%)</b>, and <b>Washington Reagan (75.6%)</b> — "
+                "are served predominantly by regional jets averaging 77–86 seats. "
+                "This structural gap limits premium seat availability and signals upgrade opportunity as demand grows.",
+                sentiment="risk",
+            )
+
         # ── Travel Character ─────────────────────────────────────────
         st.markdown("### Travel Character — Leisure vs. Business")
         st.caption(
@@ -3156,151 +3399,6 @@ with tab_market:
                 mime="text/csv",
             )
 
-        # ── Hub Service Quality — Regional Jet Dominance ─────────────────────
-        st.markdown("### Hub Service Quality — Key Business Routes Underserved by Mainline Aircraft")
-        st.caption(
-            "Columbus (CMH) flies to major business hubs, but premium travelers face a service gap: "
-            "routes dominated by 50–76 seat regional jets offer no lie-flat business class, limited "
-            "award availability, and less flexibility. When demand justifies it, airlines upgrade to "
-            "mainline equipment — multiplying capacity without adding new routes."
-        )
-
-        _REGIONAL_CARRIERS = {"YX", "9E", "MQ", "OH", "G7", "EV", "OO", "ZW", "QX", "CP", "YV"}
-        _HUB_ROUTES = {
-            "LGA": ("New York LaGuardia",    "Northeast Corridor — #1 US business market"),
-            "BOS": ("Boston Logan",          "Finance, biotech & university hub"),
-            "DCA": ("Washington Reagan",     "Government, consulting & lobbying hub"),
-        }
-
-        if not segment_df.empty and "UNIQUE_CARRIER" in segment_df.columns:
-            _seg_latest = int(segment_df["YEAR"].max())
-            _cmh_seg    = segment_df[
-                (segment_df["ORIGIN"] == "CMH") & (segment_df["YEAR"] == _seg_latest)
-            ].copy()
-
-            _hub_rows = []
-            for _hub, (_hub_name, _hub_desc) in _HUB_ROUTES.items():
-                _r = _cmh_seg[_cmh_seg["DEST"] == _hub]
-                if _r.empty:
-                    continue
-                _total_pax   = _r["PASSENGERS"].sum()
-                _total_deps  = _r["DEPARTURES_PERFORMED"].sum()
-                _total_seats = _r["SEATS"].sum() if "SEATS" in _r.columns else 0
-                _avg_seats   = _total_seats / _total_deps if _total_deps > 0 else 0
-                _reg_pax     = _r[_r["UNIQUE_CARRIER"].isin(_REGIONAL_CARRIERS)]["PASSENGERS"].sum()
-                _reg_pct     = _reg_pax / _total_pax * 100 if _total_pax > 0 else 0
-                _hub_rows.append({
-                    "Hub":      _hub,
-                    "Name":     _hub_name,
-                    "Desc":     _hub_desc,
-                    "TotalPax": int(_total_pax),
-                    "RegPct":   _reg_pct,
-                    "AvgSeats": _avg_seats,
-                })
-
-            if _hub_rows:
-                _hub_df = pd.DataFrame(_hub_rows)
-
-                # ── Metric cards ────────────────────────────────────────────
-                _card_cols = st.columns(len(_hub_rows))
-                for _ci, (_ci_idx, _crow) in enumerate(zip(range(len(_hub_rows)), _hub_df.itertuples())):
-                    with _card_cols[_ci]:
-                        _reg_color = "#C6397B" if _crow.RegPct >= 90 else "#0B76DA" if _crow.RegPct >= 70 else TEAL
-                        st.markdown(
-                            f"<div style='background:#F8FAFD; border:1px solid #e2e8f0; border-radius:10px; "
-                            f"padding:18px 16px; text-align:center; height:200px;'>"
-                            f"<div style='font-size:22px; font-weight:700; color:{NAVY};'>{_crow.Hub}</div>"
-                            f"<div style='font-size:13px; font-weight:600; color:{TEXT_COLOR}; margin:4px 0 2px;'>{_crow.Name}</div>"
-                            f"<div style='font-size:11px; color:#6b7280; margin-bottom:12px;'>{_crow.Desc}</div>"
-                            f"<div style='font-size:28px; font-weight:700; color:{_reg_color};'>{_crow.RegPct:.0f}%</div>"
-                            f"<div style='font-size:11px; color:#6b7280;'>regional jet</div>"
-                            f"<div style='font-size:13px; color:{TEXT_COLOR}; margin-top:8px;'>"
-                            f"<b>{_crow.TotalPax:,.0f}</b> pax · <b>{_crow.AvgSeats:.0f}</b> avg seats</div>"
-                            f"</div>",
-                            unsafe_allow_html=True,
-                        )
-
-                st.markdown("<br>", unsafe_allow_html=True)
-
-                # ── Dual-bar chart: total pax + regional % ──────────────────
-                _hq1, _hq2 = st.columns(2)
-
-                with _hq1:
-                    _fig_hubpax = go.Figure(go.Bar(
-                        x=_hub_df["Hub"],
-                        y=_hub_df["TotalPax"] / 1e3,
-                        marker_color=[NAVY, MED_BLUE, TEAL],
-                        text=(_hub_df["TotalPax"] / 1e3).round(0).astype(int).astype(str) + "K",
-                        textposition="outside",
-                        textfont=dict(size=12),
-                        hovertemplate="<b>%{x}</b><br>%{y:.0f}K passengers<extra></extra>",
-                    ))
-                    _fig_hubpax = layout(
-                        _fig_hubpax,
-                        f"Annual Passengers CMH→Hub ({_seg_latest})",
-                        height=320, legend=False,
-                    )
-                    _fig_hubpax.update_layout(
-                        xaxis_title="Hub Airport",
-                        yaxis_title="Passengers (thousands)",
-                        yaxis=dict(range=[0, _hub_df["TotalPax"].max() / 1e3 * 1.25]),
-                    )
-                    st.plotly_chart(_fig_hubpax, use_container_width=True)
-
-                with _hq2:
-                    _fig_hubpct = go.Figure(go.Bar(
-                        x=_hub_df["Hub"],
-                        y=_hub_df["RegPct"],
-                        marker_color=["#C6397B" if v >= 90 else "#0B76DA" if v >= 70 else TEAL
-                                      for v in _hub_df["RegPct"]],
-                        text=_hub_df["RegPct"].round(0).astype(int).astype(str) + "%",
-                        textposition="outside",
-                        textfont=dict(size=12),
-                        hovertemplate="<b>%{x}</b><br>%{y:.1f}% regional jet<extra></extra>",
-                    ))
-                    _fig_hubpct = layout(
-                        _fig_hubpct,
-                        f"% Passengers on Regional Jets CMH→Hub ({_seg_latest})",
-                        height=320, legend=False,
-                    )
-                    _fig_hubpct.update_layout(
-                        xaxis_title="Hub Airport",
-                        yaxis_title="Regional Jet Share (%)",
-                        yaxis=dict(range=[0, 115], ticksuffix="%"),
-                    )
-                    _fig_hubpct.add_hline(
-                        y=100, line_dash="dot", line_color="#aaa",
-                        annotation_text="100% regional", annotation_position="top right",
-                        annotation_font=dict(size=9, color="#aaa"),
-                    )
-                    st.plotly_chart(_fig_hubpct, use_container_width=True)
-
-                _worst = _hub_df.loc[_hub_df["RegPct"].idxmax()]
-                insight(
-                    f"Columbus (CMH)'s route to <b>{_worst['Name']} ({_worst['Hub']})</b> is "
-                    f"<b>{_worst['RegPct']:.0f}% regional jet</b> — {int(_worst['TotalPax']):,} passengers "
-                    f"a year averaging just <b>{_worst['AvgSeats']:.0f} seats per departure</b>. "
-                    f"All three northeast business corridors (LGA, BOS, DCA) are dominated by regional "
-                    f"equipment, signaling a structural service gap for Columbus's premium business traveler.",
-                    sentiment="risk",
-                )
-
-        else:
-            # Hardcoded fallback (from 2025 T-100 segment analysis)
-            st.markdown("""
-| Hub | Airport | Business Significance | Annual Pax | Regional Jet % | Avg Seats |
-|-----|---------|----------------------|-----------|---------------|-----------|
-| **LGA** | New York LaGuardia | Northeast Corridor — #1 US business market | 210,000 | 79.8% | 86 |
-| **BOS** | Boston Logan | Finance, biotech & university hub | 110,000 | 98.2% | 77 |
-| **DCA** | Washington Reagan | Government, consulting & lobbying hub | 116,000 | 75.6% | 86 |
-""")
-            insight(
-                "All three of Columbus (CMH)'s top northeast business corridors — "
-                "<b>New York LaGuardia (79.8%)</b>, <b>Boston (98.2%)</b>, and <b>Washington Reagan (75.6%)</b> — "
-                "are served predominantly by regional jets averaging 77–86 seats. "
-                "This structural gap limits premium seat availability and signals upgrade opportunity as demand grows.",
-                sentiment="risk",
-            )
 
 
 # ══════════════════════════════════════════════════════════════
