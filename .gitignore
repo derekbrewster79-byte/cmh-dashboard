@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data files — re-fetch with the fetch_*.py scripts at work
+data/
+
+# Internal / company data — never commit
+data/internal/
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Editor
+.vscode/
+.claude/
+
+# Misc
+*.mov
+*.mp4
+output/
+*.log
