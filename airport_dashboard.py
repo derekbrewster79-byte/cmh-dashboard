@@ -877,61 +877,142 @@ with tab_overview:
             insight(f"Columbus's biggest single-year drop was <b>{worst_val/1e6:.2f}M passengers</b> in <b>{worst_yr}</b> (COVID-19); "
                     f"the strongest recovery was <b>+{best_val/1e3:.0f}K passengers</b> in <b>{best_yr}</b>.", sentiment="neutral")
 
-        # ── 2. Sankey: CMH → Hub → Onward ──────────────────────
-        st.markdown("### Connecting Hub Flow — Where CMH Passengers Go Through Major Hubs")
-        st.caption(
-            "This diagram shows only **connecting traffic**: passengers who fly CMH → hub → onward destination. "
-            "Direct nonstop routes from CMH (including LGA, BOS, DCA, and others) are **not shown here** — "
-            "see the Market Opportunity tab for CMH's direct route network."
-        )
-        if data_loaded:
-            sankey_yr = int(market_df["YEAR"].max())
-            cmh_hubs, hub_onward = load_hub_onward(year=sankey_yr)
-            if not cmh_hubs.empty and not hub_onward.empty:
-                all_nodes = ["CMH"] + cmh_hubs["hub"].tolist() + hub_onward["dest"].unique().tolist()
-                node_idx  = {n: i for i, n in enumerate(all_nodes)}
-                sources, targets, values, link_colors = [], [], [], []
-                hub_palette = [MED_BLUE, TEAL, "#A053AC", "#C6397B"]
-                for i, row in cmh_hubs.iterrows():
-                    sources.append(node_idx["CMH"])
-                    targets.append(node_idx[row["hub"]])
-                    values.append(row["cmh_pax"])
-                    link_colors.append("rgba(11,118,218,0.35)")
-                for i, row in hub_onward.iterrows():
-                    hi  = cmh_hubs["hub"].tolist().index(row["hub"])
-                    col = hub_palette[hi % len(hub_palette)]
-                    r2, g2, b2 = int(col[1:3],16), int(col[3:5],16), int(col[5:7],16)
-                    sources.append(node_idx[row["hub"]])
-                    targets.append(node_idx[row["dest"]])
-                    values.append(row["pax"])
-                    link_colors.append(f"rgba({r2},{g2},{b2},0.28)")
-                node_colors = (
-                    [NAVY] +
-                    [hub_palette[i % len(hub_palette)] for i in range(len(cmh_hubs))] +
-                    ["#86C5FA"] * len(hub_onward["dest"].unique())
-                )
-                fig_sankey = go.Figure(go.Sankey(
-                    arrangement="snap",
-                    node=dict(pad=18, thickness=22, label=all_nodes, color=node_colors,
-                              line=dict(color="white", width=0.5)),
-                    link=dict(source=sources, target=targets, value=values, color=link_colors),
-                ))
-                fig_sankey.update_layout(
-                    paper_bgcolor="white",
-                    font=dict(family="Open Sans", size=11, color=TEXT_COLOR),
-                    height=480, margin=dict(t=20, b=20, l=20, r=20),
-                )
-                st.plotly_chart(fig_sankey, use_container_width=True)
-                top_hub  = cmh_hubs.iloc[0]
-                hub_city = dest_city.get(top_hub['hub'], top_hub['hub'])
-                insight(
-                    f"<b>{hub_city} ({top_hub['hub']})</b> is Columbus's largest connecting hub, routing "
-                    f"<b>{top_hub['cmh_pax']:,.0f} passengers</b> in {sankey_yr}. "
-                    f"Note: destinations shown on the right (including LGA) appear here as popular hub "
-                    f"onward connections — CMH also operates <b>direct nonstop service</b> to LGA, BOS, and DCA "
-                    f"independent of this hub flow.",
-                    sentiment="neutral",
-                )
+        # ── 4. Airline Market Share + On-Time (2 col) ───────────
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+            st.markdown("### Airline Market Share — Columbus (CMH)")
+            mkt_yr = st.selectbox("Year", sorted(market_df["YEAR"].unique(), reverse=True), key="mkt_yr")
+            carrier_col = "UNIQUE_CARRIER_NAME" if "UNIQUE_CARRIER_NAME" in market_df.columns else "CARRIER_NAME"
+            share = (market_df[(market_df["ORIGIN"]=="CMH")&(market_df["YEAR"]==mkt_yr)]
+                     .groupby(carrier_col)["PASSENGERS"].sum().reset_index()
+                     .sort_values("PASSENGERS", ascending=False))
+            if len(share) > 7:
+                top   = share.head(7).copy()
+                other = pd.DataFrame([{carrier_col: "Other", "PASSENGERS": share.iloc[7:]["PASSENGERS"].sum()}])
+                share = pd.concat([top, other], ignore_index=True)
+            fig_donut = go.Figure(go.Pie(
+                labels=share[carrier_col], values=share["PASSENGERS"],
+                hole=0.52, textinfo="percent",
+                textfont=dict(family="Open Sans", size=10),
+                marker=dict(colors=CHART_COLORS),
+            ))
+            fig_donut.update_layout(
+                paper_bgcolor="white", height=360,
+                margin=dict(t=20, b=20, l=20, r=20),
+                font=dict(family="Open Sans"),
+                legend=dict(font=dict(size=9), bgcolor="white"),
+                annotations=[dict(text="Columbus", x=0.5, y=0.5, font_size=13,
+                                  font_family="Open Sans", font_color=NAVY, showarrow=False)],
+            )
+            st.plotly_chart(fig_donut, use_container_width=True)
+            if not share.empty:
+                top_carrier = share.iloc[0]
+                top_pct = top_carrier["PASSENGERS"] / share["PASSENGERS"].sum() * 100
+                n_carriers = (len(share[share["PASSENGERS"]>0])-1
+                              if "Other" in share[carrier_col].values else len(share))
+                insight(f"<b>{top_carrier[carrier_col]}</b> leads Columbus (CMH) with <b>{top_pct:.0f}%</b> of passengers "
+                        f"in {mkt_yr}, with {n_carriers} airlines serving the airport.")
+
+        with col_b:
+            st.markdown("### On-Time Performance — Columbus (CMH)")
+            if ontime_df.empty:
+                st.info("On-time data not found.")
+            else:
+                ot_year    = st.selectbox("Year", sorted(ontime_df["YEAR"].unique(), reverse=True), key="ot_yr")
+                cmh_ot_row = ontime_df[(ontime_df["AIRPORT"]=="CMH")&(ontime_df["YEAR"]==ot_year)]
+                if not cmh_ot_row.empty:
+                    r = cmh_ot_row.iloc[0]
+                    g1, g2, g3 = st.columns(3)
+                    with g1:
+                        st.plotly_chart(gauge_fig(r["DEP_ONTIME_PCT"], "Departures"), use_container_width=True)
+                    with g2:
+                        st.plotly_chart(gauge_fig(r["ARR_ONTIME_PCT"], "Arrivals"), use_container_width=True)
+                    with g3:
+                        st.plotly_chart(gauge_fig(r["COMBINED_ONTIME_PCT"], "Combined"), use_container_width=True)
+                    ot_all = ontime_df[ontime_df["AIRPORT"].isin(display_airports)].copy()
+                    fig_ot = go.Figure()
+                    for ap in display_airports:
+                        ap_ot = ot_all[ot_all["AIRPORT"]==ap].sort_values("YEAR")
+                        if ap_ot.empty:
+                            continue
+                        is_cmh = ap == "CMH"
+                        fig_ot.add_trace(go.Scatter(
+                            x=ap_ot["YEAR"], y=ap_ot["COMBINED_ONTIME_PCT"],
+                            mode="lines+markers",
+                            name=AIRPORT_NAMES.get(ap, ap),
+                            line=dict(color=color_map.get(ap, "#aaa"),
+                                      width=3.5 if is_cmh else 1.8),
+                            marker=dict(size=9 if is_cmh else 6,
+                                        line=dict(color="white", width=1.5 if is_cmh else 1)),
+                            hovertemplate=f"<b>{AIRPORT_NAMES.get(ap, ap)}</b><br>%{{x}}: %{{y:.1f}}%<extra></extra>",
+                        ))
+                    fig_ot = layout(fig_ot, "Combined On-Time % — All Airports", height=360)
+                    fig_ot.update_layout(yaxis_title="On-Time %", xaxis_title="Year",
+                                         yaxis_ticksuffix="%",
+                                         xaxis=dict(tickmode="linear", dtick=1, tickformat="d"),
+                                         hovermode="x unified")
+                    st.plotly_chart(fig_ot, use_container_width=True)
+                    peer_ot  = ontime_df[(ontime_df["AIRPORT"].isin(display_airports))&(ontime_df["YEAR"]==ot_year)]
+                    cmh_rank = peer_ot.sort_values("COMBINED_ONTIME_PCT", ascending=False)["AIRPORT"].tolist()
+                    rank_pos = cmh_rank.index("CMH") + 1 if "CMH" in cmh_rank else None
+                    if rank_pos:
+                        insight(f"Columbus (CMH)'s combined on-time rate of <b>{r['COMBINED_ONTIME_PCT']:.1f}%</b> "
+                                f"in {ot_year} ranked <b>#{rank_pos} of {len(cmh_rank)}</b> among peer airports.")
+
+        # ── 4b. Carrier Share Over Time ────────────────────────
+        st.markdown("### Airline Passenger Trend by Carrier — Columbus (CMH)")
+        st.caption("Stacked area shows how each airline's contribution to Columbus passenger volume has shifted over time.")
+        car_col = "UNIQUE_CARRIER_NAME" if "UNIQUE_CARRIER_NAME" in market_df.columns else "CARRIER_NAME"
+        car_time = (market_df[market_df["ORIGIN"]=="CMH"]
+                    .groupby([car_col, "YEAR"])["PASSENGERS"].sum().reset_index())
+        top_cars = car_time.groupby(car_col)["PASSENGERS"].sum().nlargest(6).index
+        car_time = car_time[car_time[car_col].isin(top_cars)].copy()
+        car_time = car_time.rename(columns={car_col: "Carrier"})
+        if not car_time.empty:
+            fig_car = px.area(car_time, x="YEAR", y="PASSENGERS", color="Carrier",
+                              color_discrete_sequence=CHART_COLORS,
+                              groupnorm=None)
+            fig_car = layout(fig_car, "Columbus (CMH) Passenger Volume by Airline (top 6 carriers)", height=360)
+            fig_car.update_layout(xaxis_title="Year", yaxis_title="Passengers",
+                                  xaxis=dict(tickmode="linear", dtick=1, tickformat="d"),
+                                  hovermode="x unified")
+            covid_band(fig_car)
+            st.plotly_chart(fig_car, use_container_width=True)
+            latest_car_yr = int(car_time["YEAR"].max())
+            top_carrier_row = (car_time[car_time["YEAR"]==latest_car_yr]
+                               .sort_values("PASSENGERS", ascending=False).iloc[0])
+            total_latest = car_time[car_time["YEAR"]==latest_car_yr]["PASSENGERS"].sum()
+            top_share = top_carrier_row["PASSENGERS"] / total_latest * 100
+            insight(f"<b>{top_carrier_row['Carrier']}</b> is Columbus's dominant carrier in {latest_car_yr} "
+                    f"with <b>{top_share:.0f}%</b> of the top-6 carrier passenger volume — "
+                    f"watch this chart for shifts in airline commitment to the Columbus market.")
+
+        # ── 5. Nonstop Frequency ────────────────────────────────
+        if not segment_df.empty:
+            st.markdown("### Top Routes by Daily Nonstop Frequency — Columbus (CMH)")
+            freq_yr  = int(year_range[1])
+            cmh_freq = (segment_df[(segment_df["ORIGIN"]=="CMH")&(segment_df["YEAR"]==freq_yr)]
+                        .groupby("DEST")["DEPARTURES_PERFORMED"].sum().reset_index())
+            cmh_freq["Daily"] = (cmh_freq["DEPARTURES_PERFORMED"] / 365).round(1)
+            cmh_freq = cmh_freq.sort_values("Daily", ascending=False).head(10)
+            fig_freq = go.Figure(go.Bar(
+                x=cmh_freq["Daily"], y=cmh_freq["DEST"],
+                orientation="h", marker_color=TEAL,
+                text=cmh_freq["Daily"], textposition="outside",
+                textfont=dict(family="Open Sans", size=10),
+            ))
+            fig_freq = layout(fig_freq, f"Avg Daily Nonstop Departures from Columbus (CMH) — {freq_yr}",
+                              height=340, legend=False)
+            fig_freq.update_layout(xaxis_title="Daily Nonstop Departures", yaxis_title="",
+                                   margin=dict(r=80))
+            st.plotly_chart(fig_freq, use_container_width=True)
+            top_freq_dest = cmh_freq.iloc[0]
+            freq_city = dest_city.get(top_freq_dest['DEST'], top_freq_dest['DEST'])
+            insight(f"<b>{freq_city} ({top_freq_dest['DEST']})</b> is Columbus's most frequent nonstop with "
+                    f"~<b>{top_freq_dest['Daily']:.1f} flights/day</b> in {freq_yr} — "
+                    f"{int(top_freq_dest['Daily'] * 365):,} total departures.")
+
 
         # ── 3. Route Map ────────────────────────────────────────
         st.markdown("### Columbus (CMH) Route Network — Passenger Volume Map")
@@ -1130,142 +1211,61 @@ with tab_overview:
                         unsafe_allow_html=True
                     )
 
-        # ── 4. Airline Market Share + On-Time (2 col) ───────────
-        col_a, col_b = st.columns(2)
-
-        with col_a:
-            st.markdown("### Airline Market Share — Columbus (CMH)")
-            mkt_yr = st.selectbox("Year", sorted(market_df["YEAR"].unique(), reverse=True), key="mkt_yr")
-            carrier_col = "UNIQUE_CARRIER_NAME" if "UNIQUE_CARRIER_NAME" in market_df.columns else "CARRIER_NAME"
-            share = (market_df[(market_df["ORIGIN"]=="CMH")&(market_df["YEAR"]==mkt_yr)]
-                     .groupby(carrier_col)["PASSENGERS"].sum().reset_index()
-                     .sort_values("PASSENGERS", ascending=False))
-            if len(share) > 7:
-                top   = share.head(7).copy()
-                other = pd.DataFrame([{carrier_col: "Other", "PASSENGERS": share.iloc[7:]["PASSENGERS"].sum()}])
-                share = pd.concat([top, other], ignore_index=True)
-            fig_donut = go.Figure(go.Pie(
-                labels=share[carrier_col], values=share["PASSENGERS"],
-                hole=0.52, textinfo="percent",
-                textfont=dict(family="Open Sans", size=10),
-                marker=dict(colors=CHART_COLORS),
-            ))
-            fig_donut.update_layout(
-                paper_bgcolor="white", height=360,
-                margin=dict(t=20, b=20, l=20, r=20),
-                font=dict(family="Open Sans"),
-                legend=dict(font=dict(size=9), bgcolor="white"),
-                annotations=[dict(text="Columbus", x=0.5, y=0.5, font_size=13,
-                                  font_family="Open Sans", font_color=NAVY, showarrow=False)],
-            )
-            st.plotly_chart(fig_donut, use_container_width=True)
-            if not share.empty:
-                top_carrier = share.iloc[0]
-                top_pct = top_carrier["PASSENGERS"] / share["PASSENGERS"].sum() * 100
-                n_carriers = (len(share[share["PASSENGERS"]>0])-1
-                              if "Other" in share[carrier_col].values else len(share))
-                insight(f"<b>{top_carrier[carrier_col]}</b> leads Columbus (CMH) with <b>{top_pct:.0f}%</b> of passengers "
-                        f"in {mkt_yr}, with {n_carriers} airlines serving the airport.")
-
-        with col_b:
-            st.markdown("### On-Time Performance — Columbus (CMH)")
-            if ontime_df.empty:
-                st.info("On-time data not found.")
-            else:
-                ot_year    = st.selectbox("Year", sorted(ontime_df["YEAR"].unique(), reverse=True), key="ot_yr")
-                cmh_ot_row = ontime_df[(ontime_df["AIRPORT"]=="CMH")&(ontime_df["YEAR"]==ot_year)]
-                if not cmh_ot_row.empty:
-                    r = cmh_ot_row.iloc[0]
-                    g1, g2, g3 = st.columns(3)
-                    with g1:
-                        st.plotly_chart(gauge_fig(r["DEP_ONTIME_PCT"], "Departures"), use_container_width=True)
-                    with g2:
-                        st.plotly_chart(gauge_fig(r["ARR_ONTIME_PCT"], "Arrivals"), use_container_width=True)
-                    with g3:
-                        st.plotly_chart(gauge_fig(r["COMBINED_ONTIME_PCT"], "Combined"), use_container_width=True)
-                    ot_all = ontime_df[ontime_df["AIRPORT"].isin(display_airports)].copy()
-                    fig_ot = go.Figure()
-                    for ap in display_airports:
-                        ap_ot = ot_all[ot_all["AIRPORT"]==ap].sort_values("YEAR")
-                        if ap_ot.empty:
-                            continue
-                        is_cmh = ap == "CMH"
-                        fig_ot.add_trace(go.Scatter(
-                            x=ap_ot["YEAR"], y=ap_ot["COMBINED_ONTIME_PCT"],
-                            mode="lines+markers",
-                            name=AIRPORT_NAMES.get(ap, ap),
-                            line=dict(color=color_map.get(ap, "#aaa"),
-                                      width=3.5 if is_cmh else 1.8),
-                            marker=dict(size=9 if is_cmh else 6,
-                                        line=dict(color="white", width=1.5 if is_cmh else 1)),
-                            hovertemplate=f"<b>{AIRPORT_NAMES.get(ap, ap)}</b><br>%{{x}}: %{{y:.1f}}%<extra></extra>",
-                        ))
-                    fig_ot = layout(fig_ot, "Combined On-Time % — All Airports", height=360)
-                    fig_ot.update_layout(yaxis_title="On-Time %", xaxis_title="Year",
-                                         yaxis_ticksuffix="%",
-                                         xaxis=dict(tickmode="linear", dtick=1, tickformat="d"),
-                                         hovermode="x unified")
-                    st.plotly_chart(fig_ot, use_container_width=True)
-                    peer_ot  = ontime_df[(ontime_df["AIRPORT"].isin(display_airports))&(ontime_df["YEAR"]==ot_year)]
-                    cmh_rank = peer_ot.sort_values("COMBINED_ONTIME_PCT", ascending=False)["AIRPORT"].tolist()
-                    rank_pos = cmh_rank.index("CMH") + 1 if "CMH" in cmh_rank else None
-                    if rank_pos:
-                        insight(f"Columbus (CMH)'s combined on-time rate of <b>{r['COMBINED_ONTIME_PCT']:.1f}%</b> "
-                                f"in {ot_year} ranked <b>#{rank_pos} of {len(cmh_rank)}</b> among peer airports.")
-
-        # ── 4b. Carrier Share Over Time ────────────────────────
-        st.markdown("### Airline Passenger Trend by Carrier — Columbus (CMH)")
-        st.caption("Stacked area shows how each airline's contribution to Columbus passenger volume has shifted over time.")
-        car_col = "UNIQUE_CARRIER_NAME" if "UNIQUE_CARRIER_NAME" in market_df.columns else "CARRIER_NAME"
-        car_time = (market_df[market_df["ORIGIN"]=="CMH"]
-                    .groupby([car_col, "YEAR"])["PASSENGERS"].sum().reset_index())
-        top_cars = car_time.groupby(car_col)["PASSENGERS"].sum().nlargest(6).index
-        car_time = car_time[car_time[car_col].isin(top_cars)].copy()
-        car_time = car_time.rename(columns={car_col: "Carrier"})
-        if not car_time.empty:
-            fig_car = px.area(car_time, x="YEAR", y="PASSENGERS", color="Carrier",
-                              color_discrete_sequence=CHART_COLORS,
-                              groupnorm=None)
-            fig_car = layout(fig_car, "Columbus (CMH) Passenger Volume by Airline (top 6 carriers)", height=360)
-            fig_car.update_layout(xaxis_title="Year", yaxis_title="Passengers",
-                                  xaxis=dict(tickmode="linear", dtick=1, tickformat="d"),
-                                  hovermode="x unified")
-            covid_band(fig_car)
-            st.plotly_chart(fig_car, use_container_width=True)
-            latest_car_yr = int(car_time["YEAR"].max())
-            top_carrier_row = (car_time[car_time["YEAR"]==latest_car_yr]
-                               .sort_values("PASSENGERS", ascending=False).iloc[0])
-            total_latest = car_time[car_time["YEAR"]==latest_car_yr]["PASSENGERS"].sum()
-            top_share = top_carrier_row["PASSENGERS"] / total_latest * 100
-            insight(f"<b>{top_carrier_row['Carrier']}</b> is Columbus's dominant carrier in {latest_car_yr} "
-                    f"with <b>{top_share:.0f}%</b> of the top-6 carrier passenger volume — "
-                    f"watch this chart for shifts in airline commitment to the Columbus market.")
-
-        # ── 5. Nonstop Frequency ────────────────────────────────
-        if not segment_df.empty:
-            st.markdown("### Top Routes by Daily Nonstop Frequency — Columbus (CMH)")
-            freq_yr  = int(year_range[1])
-            cmh_freq = (segment_df[(segment_df["ORIGIN"]=="CMH")&(segment_df["YEAR"]==freq_yr)]
-                        .groupby("DEST")["DEPARTURES_PERFORMED"].sum().reset_index())
-            cmh_freq["Daily"] = (cmh_freq["DEPARTURES_PERFORMED"] / 365).round(1)
-            cmh_freq = cmh_freq.sort_values("Daily", ascending=False).head(10)
-            fig_freq = go.Figure(go.Bar(
-                x=cmh_freq["Daily"], y=cmh_freq["DEST"],
-                orientation="h", marker_color=TEAL,
-                text=cmh_freq["Daily"], textposition="outside",
-                textfont=dict(family="Open Sans", size=10),
-            ))
-            fig_freq = layout(fig_freq, f"Avg Daily Nonstop Departures from Columbus (CMH) — {freq_yr}",
-                              height=340, legend=False)
-            fig_freq.update_layout(xaxis_title="Daily Nonstop Departures", yaxis_title="",
-                                   margin=dict(r=80))
-            st.plotly_chart(fig_freq, use_container_width=True)
-            top_freq_dest = cmh_freq.iloc[0]
-            freq_city = dest_city.get(top_freq_dest['DEST'], top_freq_dest['DEST'])
-            insight(f"<b>{freq_city} ({top_freq_dest['DEST']})</b> is Columbus's most frequent nonstop with "
-                    f"~<b>{top_freq_dest['Daily']:.1f} flights/day</b> in {freq_yr} — "
-                    f"{int(top_freq_dest['Daily'] * 365):,} total departures.")
-
+        # ── 2. Sankey: CMH → Hub → Onward ──────────────────────
+        st.markdown("### Connecting Hub Flow — Where CMH Passengers Go Through Major Hubs")
+        st.caption(
+            "This diagram shows only **connecting traffic**: passengers who fly CMH → hub → onward destination. "
+            "Direct nonstop routes from CMH (including LGA, BOS, DCA, and others) are **not shown here** — "
+            "see the Market Opportunity tab for CMH's direct route network."
+        )
+        if data_loaded:
+            sankey_yr = int(market_df["YEAR"].max())
+            cmh_hubs, hub_onward = load_hub_onward(year=sankey_yr)
+            if not cmh_hubs.empty and not hub_onward.empty:
+                all_nodes = ["CMH"] + cmh_hubs["hub"].tolist() + hub_onward["dest"].unique().tolist()
+                node_idx  = {n: i for i, n in enumerate(all_nodes)}
+                sources, targets, values, link_colors = [], [], [], []
+                hub_palette = [MED_BLUE, TEAL, "#A053AC", "#C6397B"]
+                for i, row in cmh_hubs.iterrows():
+                    sources.append(node_idx["CMH"])
+                    targets.append(node_idx[row["hub"]])
+                    values.append(row["cmh_pax"])
+                    link_colors.append("rgba(11,118,218,0.35)")
+                for i, row in hub_onward.iterrows():
+                    hi  = cmh_hubs["hub"].tolist().index(row["hub"])
+                    col = hub_palette[hi % len(hub_palette)]
+                    r2, g2, b2 = int(col[1:3],16), int(col[3:5],16), int(col[5:7],16)
+                    sources.append(node_idx[row["hub"]])
+                    targets.append(node_idx[row["dest"]])
+                    values.append(row["pax"])
+                    link_colors.append(f"rgba({r2},{g2},{b2},0.28)")
+                node_colors = (
+                    [NAVY] +
+                    [hub_palette[i % len(hub_palette)] for i in range(len(cmh_hubs))] +
+                    ["#86C5FA"] * len(hub_onward["dest"].unique())
+                )
+                fig_sankey = go.Figure(go.Sankey(
+                    arrangement="snap",
+                    node=dict(pad=18, thickness=22, label=all_nodes, color=node_colors,
+                              line=dict(color="white", width=0.5)),
+                    link=dict(source=sources, target=targets, value=values, color=link_colors),
+                ))
+                fig_sankey.update_layout(
+                    paper_bgcolor="white",
+                    font=dict(family="Open Sans", size=11, color=TEXT_COLOR),
+                    height=480, margin=dict(t=20, b=20, l=20, r=20),
+                )
+                st.plotly_chart(fig_sankey, use_container_width=True)
+                top_hub  = cmh_hubs.iloc[0]
+                hub_city = dest_city.get(top_hub['hub'], top_hub['hub'])
+                insight(
+                    f"<b>{hub_city} ({top_hub['hub']})</b> is Columbus's largest connecting hub, routing "
+                    f"<b>{top_hub['cmh_pax']:,.0f} passengers</b> in {sankey_yr}. "
+                    f"Note: destinations shown on the right (including LGA) appear here as popular hub "
+                    f"onward connections — CMH also operates <b>direct nonstop service</b> to LGA, BOS, and DCA "
+                    f"independent of this hub flow.",
+                    sentiment="neutral",
+                )
 
 # ══════════════════════════════════════════════════════════════
 # TAB 2 · COLUMBUS MSA
