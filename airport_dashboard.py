@@ -445,6 +445,17 @@ data_loaded = not market_df.empty
 @st.cache_data(show_spinner="Loading hub connection data…")
 def load_hub_onward(year=2024, top_hubs=4, top_onward=4):
     """Load onward connections from CMH's top hub airports for the Sankey diagram."""
+    # Use pre-computed files if available (Streamlit Cloud deploy data is airport-filtered
+    # and doesn't contain hub airport rows needed for onward connections)
+    pre_hubs   = os.path.join(BTS_DIR, "sankey_cmh_hubs.csv")
+    pre_onward = os.path.join(BTS_DIR, "sankey_hub_onward.csv")
+    if os.path.exists(pre_hubs) and os.path.exists(pre_onward):
+        cmh_hubs   = pd.read_csv(pre_hubs)
+        hub_onward = pd.read_csv(pre_onward)
+        cmh_hubs["cmh_pax"]   = pd.to_numeric(cmh_hubs["cmh_pax"],   errors="coerce")
+        hub_onward["pax"]     = pd.to_numeric(hub_onward["pax"],      errors="coerce")
+        return cmh_hubs, hub_onward
+
     fname = os.path.join(BTS_DIR, f"T_T100D_MARKET_US_CARRIER_ONLY_{year}.csv")
     if not os.path.exists(fname):
         fname = sorted(glob.glob(os.path.join(BTS_DIR, "T_T100D_MARKET_US_CARRIER_ONLY_*.csv")))[-1]
